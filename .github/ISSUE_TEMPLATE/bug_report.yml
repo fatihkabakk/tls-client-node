@@ -1,0 +1,56 @@
+name: Bug report
+description: Report incorrect or unexpected package behavior.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the issue clearly and directly.
+      placeholder: A clear description of the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Include the smallest reproduction you can provide.
+      placeholder: |
+        1. Configure TLSClient with ...
+        2. Call ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime_mode
+    attributes:
+      label: Runtime mode
+      options:
+        - native
+        - managed
+        - remote
+        - not sure
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version, and package version.
+      placeholder: Windows 11, Node 22.14.0, tls-client-node 0.1.0
+    validations:
+      required: true

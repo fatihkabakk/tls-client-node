@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - dev
+      - test
+      - master
+      - main
+  pull_request:
+    branches:
+      - dev
+      - test
+      - master
+      - main
+
+permissions:
+  contents: read
+
+env:
+  TLS_CLIENT_SKIP_DOWNLOAD: "1"
+
+jobs:
+  validate:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node: 20
+          - os: ubuntu-latest
+            node: 22
+          - os: windows-latest
+            node: 22
+          - os: macos-latest
+            node: 22
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --ignore-scripts
+
+      - name: Validate package
+        run: yarn run ci:check
