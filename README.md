@@ -76,19 +76,22 @@ ESM named imports work directly:
 ```ts
 import {
   ClientIdentifier,
+  Emulation,
+  MultipartForm,
   TLSClient,
+  createMultipartForm,
 } from "tls-client-node";
 
 const client = new TLSClient();
 const session = client.session({
-  clientIdentifier: ClientIdentifier.chrome_136,
+  clientIdentifier: Emulation.chrome_136,
 });
 ```
 
 CommonJS is supported too:
 
 ```js
-const { ClientIdentifier, TLSClient } = require("tls-client-node");
+const { ClientIdentifier, Emulation, MultipartForm, TLSClient, createMultipartForm } = require("tls-client-node");
 ```
 
 ## Quick Start
@@ -154,6 +157,63 @@ const response = await fetch("https://example.com", {
 
 console.log(await response.text());
 ```
+
+## Multipart Form Uploads
+
+```ts
+import { MultipartForm, TLSClient, createMultipartForm } from "tls-client-node";
+
+const client = new TLSClient();
+const form = createMultipartForm({
+  title: "example",
+  file: {
+    data: "hello world",
+    filename: "hello.txt",
+    contentType: "text/plain",
+  },
+});
+
+const builder = new MultipartForm()
+  .append("kind", "builder")
+  .appendJson("meta", { ok: true });
+
+const response = await client.request("https://example.com/upload", {
+  method: "POST",
+  body: form,
+});
+
+console.log(response.status);
+
+await client.request("https://example.com/upload-builder", {
+  method: "POST",
+  body: builder,
+});
+
+await client.stop();
+```
+
+## Redirect Ergonomics
+
+```ts
+import { TLSClient } from "tls-client-node";
+
+const client = new TLSClient();
+const session = client.session({
+  redirect: "follow",
+});
+
+await session.get("https://example.com/start", {
+  redirect: "manual",
+});
+
+await client.stop();
+```
+
+`redirect` is a higher-level alias for `followRedirects`.
+
+- `redirect: "follow"` maps to `followRedirects: true`
+- `redirect: "manual"` maps to `followRedirects: false`
+- `redirect: true` and `redirect: false` are also accepted
 
 ## Runtime Modes
 
@@ -252,7 +312,10 @@ const response = await client.request("https://example.com/", {
 
 - Primary interface: create a `TLSClient`, create one or more `Session` instances, and stop the client when finished.
 - Each `Session` keeps a `tough-cookie` jar in sync with request and response cookies. You can inspect URL cookies with `session.cookies(url)` or serialize the jar with `session.exportCookies()`.
+- `Emulation` is exported as a higher-level alias for `ClientIdentifier`, so `Emulation.chrome_136` and `ClientIdentifier.chrome_136` are equivalent.
 - Binary responses are returned as a data URL when `byteResponse: true` is enabled, matching upstream behavior.
+- `FormData`, `MultipartForm`, and `createMultipartForm()` can all be used for multipart uploads, with the generated boundary preserved in the `content-type` header.
+- `redirect` is a higher-level alias over `followRedirects`; it improves call-site clarity without changing upstream redirect semantics.
 - WebSocket upgrade and frame APIs are not currently implemented in this wrapper.
 - New upstream client identifiers can be passed as plain strings even before this package adds them to `ClientIdentifier`.
 - Custom TLS requests remain custom-only. Rejections such as `tls: illegal parameter` or `unknown ClientHelloID: Custom-1` throw `ERR_CUSTOM_TLS_REJECTED` instead of falling back silently.

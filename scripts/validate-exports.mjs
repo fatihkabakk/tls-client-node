@@ -10,7 +10,10 @@ const esmModule = await import(pathToFileURL(path.join(rootDir, "index.mjs")).hr
 
 const requiredExports = [
     "ClientIdentifier",
+    "Emulation",
     "CookieJar",
+    "MultipartForm",
+    "createMultipartForm",
     "TLSClient",
     "Session",
     "fetch",
@@ -30,6 +33,14 @@ for (const exportName of requiredExports) {
 
 if (typeof cjsModule.TLSClient !== "function" || typeof esmModule.TLSClient !== "function") {
     throw new Error("TLSClient export is not a constructor.");
+}
+
+if (cjsModule.Emulation.chrome_136 !== cjsModule.ClientIdentifier.chrome_136) {
+    throw new Error("Emulation export does not mirror ClientIdentifier.");
+}
+
+if (typeof cjsModule.MultipartForm !== "function" || typeof cjsModule.createMultipartForm !== "function") {
+    throw new Error("Multipart helper exports are invalid.");
 }
 
 console.log(JSON.stringify({ ok: true, exportsChecked: requiredExports.length }));

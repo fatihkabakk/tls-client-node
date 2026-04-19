@@ -85,9 +85,13 @@ export const ClientIdentifier = {
   cloudscraper: "cloudscraper",
 } as const;
 
+export const Emulation = ClientIdentifier;
+
 export type ClientIdentifier =
   | (typeof ClientIdentifier)[keyof typeof ClientIdentifier]
   | (string & {});
+
+export type Emulation = ClientIdentifier;
 
 export type HttpMethod =
   | "GET"
@@ -101,6 +105,11 @@ export type HttpMethod =
 export type HeaderInputValue = string | number | boolean;
 export type HeadersShape = Record<string, HeaderInputValue | undefined>;
 export type CookieMap = Record<string, string>;
+export type RedirectBehavior = boolean | "follow" | "manual";
+
+export interface MultipartBodyLike {
+  toFormData(): FormData;
+}
 
 export interface Cookie {
   name: string;
@@ -181,6 +190,7 @@ export interface SessionOptions {
   proxy?: string;
   proxyUrl?: string;
   isRotatingProxy?: boolean;
+  redirect?: RedirectBehavior;
   followRedirects?: boolean;
   insecureSkipVerify?: boolean;
   withoutCookieJar?: boolean;
@@ -212,6 +222,8 @@ export interface SessionOptions {
 export type RequestBody =
   | string
   | URLSearchParams
+  | FormData
+  | MultipartBodyLike
   | ArrayBuffer
   | ArrayBufferView
   | Record<string, unknown>

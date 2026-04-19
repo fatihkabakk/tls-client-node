@@ -18,8 +18,10 @@ import {
   DestroyOutput,
   HeadersShape,
   HttpMethod,
+  MultipartBodyLike,
   RequestBody,
   RequestOptions,
+  RedirectBehavior,
   SerializedCookieJar,
   SessionOptions,
   TLSClientOptions,
@@ -335,40 +337,82 @@ function normalizeHostOverride(value?: string | null): string | undefined {
   return normalized || undefined;
 }
 
-function encodeBody(
+function normalizeRedirectBehavior(
+  value?: RedirectBehavior
+): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  return value === "follow";
+}
+
+function isMultipartBodyLike(body: RequestBody): body is MultipartBodyLike {
+  return typeof body === "object" && body !== null && "toFormData" in body;
+}
+
+function isFormDataBody(body: RequestBody): body is FormData {
+  return typeof FormData !== "undefined" && body instanceof FormData;
+}
+
+async function encodeBody(
   body: RequestBody,
   headers: Record<string, string>,
   forceBinary?: boolean
-): { requestBody?: string; isByteRequest: boolean } {
-  if (body === undefined || body === null) {
+): Promise<{ requestBody?: string; isByteRequest: boolean }> {
+  const normalizedBody = isMultipartBodyLike(body) ? body.toFormData() : body;
+
+  if (normalizedBody === undefined || normalizedBody === null) {
     return {
       requestBody: undefined,
       isByteRequest: Boolean(forceBinary),
     };
   }
 
-  if (typeof body === "string") {
+  if (typeof normalizedBody === "string") {
     return {
-      requestBody: body,
+      requestBody: normalizedBody,
       isByteRequest: Boolean(forceBinary),
     };
   }
 
-  if (body instanceof URLSearchParams) {
+  if (normalizedBody instanceof URLSearchParams) {
     if (!headers["content-type"]) {
       headers["content-type"] = "application/x-www-form-urlencoded;charset=UTF-8";
     }
 
     return {
-      requestBody: body.toString(),
+      requestBody: normalizedBody.toString(),
       isByteRequest: false,
     };
   }
 
-  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
-    const buffer = body instanceof ArrayBuffer
-      ? Buffer.from(body)
-      : Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  if (isFormDataBody(normalizedBody)) {
+    const request = new Request("http://127.0.0.1/", {
+      method: "POST",
+      body: normalizedBody,
+    });
+    const contentType = request.headers.get("content-type");
+    const arrayBuffer = await request.arrayBuffer();
+
+    if (contentType) {
+      headers["content-type"] = contentType;
+    }
+
+    return {
+      requestBody: Buffer.from(arrayBuffer).toString("base64"),
+      isByteRequest: true,
+    };
+  }
+
+  if (normalizedBody instanceof ArrayBuffer || ArrayBuffer.isView(normalizedBody)) {
+    const buffer = normalizedBody instanceof ArrayBuffer
+      ? Buffer.from(normalizedBody)
+      : Buffer.from(normalizedBody.buffer, normalizedBody.byteOffset, normalizedBody.byteLength);
 
     if (!headers["content-type"]) {
       headers["content-type"] = "application/octet-stream";
@@ -385,7 +429,7 @@ function encodeBody(
   }
 
   return {
-    requestBody: JSON.stringify(body),
+    requestBody: JSON.stringify(normalizedBody),
     isByteRequest: false,
   };
 }
@@ -457,7 +501,7 @@ function getProfileSelection(
   };
 }
 
-function buildForwardPayload(
+async function buildForwardPayload(
   url: string,
   sessionDefaults: SessionOptions | undefined,
   requestOptions: RequestOptions,
@@ -476,7 +520,7 @@ function buildForwardPayload(
     sessionDefaults?.timeoutSeconds,
     timeoutMilliseconds !== undefined ? 0 : 30
   );
-  const { requestBody, isByteRequest } = encodeBody(
+  const { requestBody, isByteRequest } = await encodeBody(
     requestOptions.body,
     headers,
     requestOptions.isByteRequest
@@ -490,7 +534,9 @@ function buildForwardPayload(
     tlsClientIdentifier: profileSelection.tlsClientIdentifier,
     customTlsClient: profileSelection.customTlsClient,
     followRedirects: pickDefined(
+      normalizeRedirectBehavior(requestOptions.redirect),
       requestOptions.followRedirects,
+      normalizeRedirectBehavior(sessionDefaults?.redirect),
       sessionDefaults?.followRedirects,
       false
     ),
@@ -627,7 +673,7 @@ function buildForwardPayload(
   };
 }
 
-type ForwardPayload = ReturnType<typeof buildForwardPayload>;
+type ForwardPayload = Awaited<ReturnType<typeof buildForwardPayload>>;
 
 function classifyForwardError(
   value: unknown,
@@ -988,7 +1034,12 @@ export class TLSClient {
     url: string,
     options: RequestOptions = {}
   ): Promise<TLSResponse> {
-    const payload = buildForwardPayload(url, undefined, options, options.sessionId);
+    const payload = await buildForwardPayload(
+      url,
+      undefined,
+      options,
+      options.sessionId
+    );
     return this.forward(payload);
   }
 
@@ -1309,7 +1360,7 @@ export class Session {
       ? await getCookiesFromJar(this.cookieJar, url)
       : normalizeCookieInput(options.cookies);
 
-    const payload = buildForwardPayload(
+    const payload = await buildForwardPayload(
       url,
       this.defaults,
       {

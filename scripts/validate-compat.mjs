@@ -10,8 +10,11 @@ const rootDir = path.resolve(path.dirname(scriptFilePath), "..");
 const {
     ClientIdentifier,
     CookieJar,
+    Emulation,
+    MultipartForm,
     TLSClient,
     TLSResponse,
+    createMultipartForm,
 } = require(path.join(rootDir, "dist", "index.js"));
 
 function createResponse(target = "https://api.example.test/resource") {
@@ -67,6 +70,7 @@ assert.equal(ClientIdentifier.safari_ios_15_6, "safari_ios_15_6");
 assert.equal(ClientIdentifier.safari_ios_18_5, "safari_ios_18_5");
 assert.equal(ClientIdentifier.safari_ios_26_0, "safari_ios_26_0");
 assert.equal(ClientIdentifier.okhttp4_android_12, "okhttp4_android_12");
+assert.equal(Emulation.chrome_136, ClientIdentifier.chrome_136);
 
 const identifierClient = new TLSClient();
 let identifierPayload;
@@ -131,6 +135,84 @@ const synchronizedCookies = await runtimeCookieSession.cookieJar.getCookies("htt
 assert.equal(synchronizedCookies.length, 1);
 assert.equal(synchronizedCookies[0].key, "runtime");
 
+const multipartClient = new TLSClient();
+let multipartPayload;
+multipartClient.forward = async (payload) => {
+    multipartPayload = payload;
+    return createResponse(payload.requestUrl);
+};
+
+const multipartBody = createMultipartForm({
+    alpha: "one",
+    beta: {
+        data: "hello world",
+        filename: "hello.txt",
+        contentType: "text/plain",
+    },
+});
+
+await multipartClient.request("https://api.example.test/upload", {
+    method: "POST",
+    body: multipartBody,
+});
+
+assert.equal(multipartPayload.isByteRequest, true);
+assert.match(multipartPayload.headers["content-type"], /^multipart\/form-data; boundary=/);
+
+const multipartBodyText = Buffer.from(multipartPayload.requestBody, "base64").toString("utf8");
+assert.match(multipartBodyText, /name="alpha"\r\n\r\none/);
+assert.match(multipartBodyText, /name="beta"; filename="hello.txt"/);
+assert.match(multipartBodyText, /Content-Type: text\/plain/);
+
+const multipartBuilder = new MultipartForm()
+    .append("title", "example")
+    .appendFile("payload", new Uint8Array([65, 66, 67]), {
+        filename: "letters.bin",
+        contentType: "application/octet-stream",
+    })
+    .appendJson("meta", { ok: true });
+
+let multipartBuilderPayload;
+multipartClient.forward = async (payload) => {
+    multipartBuilderPayload = payload;
+    return createResponse(payload.requestUrl);
+};
+
+await multipartClient.request("https://api.example.test/upload-builder", {
+    method: "POST",
+    body: multipartBuilder,
+});
+
+const multipartBuilderBodyText = Buffer.from(multipartBuilderPayload.requestBody, "base64").toString("utf8");
+assert.match(multipartBuilderBodyText, /name="title"\r\n\r\nexample/);
+assert.match(multipartBuilderBodyText, /name="payload"; filename="letters.bin"/);
+assert.match(multipartBuilderBodyText, /name="meta"; filename="meta.json"/);
+
+const redirectClient = new TLSClient();
+let redirectPayload;
+redirectClient.forward = async (payload) => {
+    redirectPayload = payload;
+    return createResponse(payload.requestUrl);
+};
+
+const redirectSession = redirectClient.session({
+    redirect: "follow",
+});
+
+await redirectSession.get("https://api.example.test/redirect-follow");
+assert.equal(redirectPayload.followRedirects, true);
+
+await redirectSession.get("https://api.example.test/redirect-manual", {
+    redirect: "manual",
+});
+assert.equal(redirectPayload.followRedirects, false);
+
+await redirectSession.get("https://api.example.test/redirect-boolean", {
+    redirect: true,
+    followRedirects: false,
+});
+assert.equal(redirectPayload.followRedirects, true);
+
 const closingClient = new TLSClient();
 const closingSession = closingClient.session();
 let destroySessionCalls = 0;
@@ -169,6 +251,10 @@ console.log(JSON.stringify({
         "hostOverride",
         "randomTlsExtensionOrder",
         "upstream clientIdentifier constants",
+        "emulation alias",
+        "multipart form-data",
+        "multipart helpers",
+        "redirect alias",
         "cookieJar expires forwarding",
         "concurrent session close",
     ],
