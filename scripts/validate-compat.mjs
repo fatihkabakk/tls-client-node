@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -213,6 +215,64 @@ await redirectSession.get("https://api.example.test/redirect-boolean", {
 });
 assert.equal(redirectPayload.followRedirects, true);
 
+const delayServer = spawn(process.execPath, [
+    "-e",
+    [
+        "const http = require('node:http');",
+        "const server = http.createServer((req, res) => {",
+        "  setTimeout(() => {",
+        "    res.writeHead(200, { 'content-type': 'text/plain' });",
+        "    res.end('ok');",
+        "  }, 600);",
+        "});",
+        "server.listen(0, '127.0.0.1', () => {",
+        "  const address = server.address();",
+        "  process.stdout.write(String(address.port));",
+        "});",
+    ].join(" "),
+], {
+    stdio: ["ignore", "pipe", "inherit"],
+});
+
+const [portOutput] = await once(delayServer.stdout, "data");
+const delayServerPort = Number.parseInt(String(portOutput).trim(), 10);
+
+assert.equal(Number.isInteger(delayServerPort), true);
+
+const nativeClient = new TLSClient({
+    runtimeMode: "native",
+    requestTimeoutMs: 5_000,
+});
+
+const startedAt = Date.now();
+
+try {
+    const nativeResponses = await Promise.all([
+        nativeClient.request(`http://127.0.0.1:${delayServerPort}/one`, {
+            forceHttp1: true,
+            insecureSkipVerify: true,
+        }),
+        nativeClient.request(`http://127.0.0.1:${delayServerPort}/two`, {
+            forceHttp1: true,
+            insecureSkipVerify: true,
+        }),
+        nativeClient.request(`http://127.0.0.1:${delayServerPort}/three`, {
+            forceHttp1: true,
+            insecureSkipVerify: true,
+        }),
+    ]);
+    const elapsedMs = Date.now() - startedAt;
+
+    assert.deepEqual(nativeResponses.map((response) => response.status), [200, 200, 200]);
+    assert.ok(
+        elapsedMs < 1_400,
+        `Expected concurrent native requests to overlap, but they took ${elapsedMs}ms.`,
+    );
+} finally {
+    await nativeClient.stop();
+    delayServer.kill();
+}
+
 const closingClient = new TLSClient();
 const closingSession = closingClient.session();
 let destroySessionCalls = 0;
@@ -255,6 +315,7 @@ console.log(JSON.stringify({
         "multipart form-data",
         "multipart helpers",
         "redirect alias",
+        "native concurrency",
         "cookieJar expires forwarding",
         "concurrent session close",
     ],

@@ -12,11 +12,16 @@ interface RawNativeBinding {
 
 export interface NativeClientBinding {
   libraryPath: string;
-  request<T>(payload: unknown): T;
-  getCookiesFromSession<T>(payload: unknown): T;
-  destroySession<T>(payload: unknown): T;
-  destroyAll<T>(): T;
+  request<T>(payload: unknown): Promise<T>;
+  getCookiesFromSession<T>(payload: unknown): Promise<T>;
+  destroySession<T>(payload: unknown): Promise<T>;
+  destroyAll<T>(): Promise<T>;
 }
+
+type NativeAsyncCallback = (error: Error | null, result: string | undefined) => void;
+type NativeAsyncFunction = {
+  async: (...args: [...unknown[], NativeAsyncCallback]) => void;
+};
 
 const bindingCache = new Map<string, NativeClientBinding>();
 
@@ -50,6 +55,33 @@ function parseNativeResponse<T>(
   }
 
   return parsed;
+}
+
+function invokeNativeAsync(
+  operation: string,
+  fn: NativeAsyncFunction,
+  ...args: unknown[]
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    fn.async(...args, (error, result) => {
+      if (error) {
+        reject(new TLSClientError(`tls-client native ${operation} failed: ${error.message}`, {
+          code: "ERR_NATIVE_CALL_FAILED",
+          cause: error,
+        }));
+        return;
+      }
+
+      if (result === undefined) {
+        reject(new TLSClientError(`tls-client native ${operation} returned no data.`, {
+          code: "ERR_NATIVE_EMPTY_RESPONSE",
+        }));
+        return;
+      }
+
+      resolve(result);
+    });
+  });
 }
 
 async function loadNativeBinding(libraryPath: string): Promise<NativeClientBinding> {
@@ -87,29 +119,48 @@ async function loadNativeBinding(libraryPath: string): Promise<NativeClientBindi
 
   const binding: NativeClientBinding = {
     libraryPath,
-    request(payload) {
+    async request(payload) {
       return parseNativeResponse(
-        rawBinding.request(JSON.stringify(payload)),
+        await invokeNativeAsync(
+          "request",
+          rawBinding.request as typeof rawBinding.request & NativeAsyncFunction,
+          JSON.stringify(payload)
+        ),
         "request",
         rawBinding
       );
     },
-    getCookiesFromSession(payload) {
+    async getCookiesFromSession(payload) {
       return parseNativeResponse(
-        rawBinding.getCookiesFromSession(JSON.stringify(payload)),
+        await invokeNativeAsync(
+          "getCookiesFromSession",
+          rawBinding.getCookiesFromSession as typeof rawBinding.getCookiesFromSession & NativeAsyncFunction,
+          JSON.stringify(payload)
+        ),
         "getCookiesFromSession",
         rawBinding
       );
     },
-    destroySession(payload) {
+    async destroySession(payload) {
       return parseNativeResponse(
-        rawBinding.destroySession(JSON.stringify(payload)),
+        await invokeNativeAsync(
+          "destroySession",
+          rawBinding.destroySession as typeof rawBinding.destroySession & NativeAsyncFunction,
+          JSON.stringify(payload)
+        ),
         "destroySession",
         rawBinding
       );
     },
-    destroyAll() {
-      return parseNativeResponse(rawBinding.destroyAll(), "destroyAll", rawBinding);
+    async destroyAll() {
+      return parseNativeResponse(
+        await invokeNativeAsync(
+          "destroyAll",
+          rawBinding.destroyAll as typeof rawBinding.destroyAll & NativeAsyncFunction
+        ),
+        "destroyAll",
+        rawBinding
+      );
     },
   };
 

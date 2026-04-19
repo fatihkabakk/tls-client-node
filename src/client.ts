@@ -1012,7 +1012,7 @@ export class TLSClient {
     }
 
     if (this.runtime.mode === "native") {
-      this.runtime.native?.destroyAll<DestroyOutput>();
+      await this.runtime.native?.destroyAll<DestroyOutput>();
       this.runtime = undefined;
       return;
     }
@@ -1048,10 +1048,10 @@ export class TLSClient {
     const runtime = this.getRuntime();
 
     if (runtime.mode === "native") {
-      return runtime.native!.getCookiesFromSession<CookiesOutput>({
+      return (await runtime.native!.getCookiesFromSession<CookiesOutput>({
         sessionId,
         url,
-      }).cookies;
+      })).cookies;
     }
 
     const response = await this.requestJson<CookiesOutput>("/api/cookies", {
@@ -1253,7 +1253,7 @@ export class TLSClient {
 
     try {
       response = runtime.mode === "native"
-        ? runtime.native!.request<ApiResponsePayload>(payload)
+        ? await runtime.native!.request<ApiResponsePayload>(payload)
         : await this.requestJson<ApiResponsePayload>("/api/forward", payload);
     } catch (error) {
       throw classifyForwardError(error, payload);
