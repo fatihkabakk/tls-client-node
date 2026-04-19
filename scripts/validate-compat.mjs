@@ -19,6 +19,9 @@ const {
     createMultipartForm,
 } = require(path.join(rootDir, "dist", "index.js"));
 
+const binaryModule = require(path.join(rootDir, "dist", "binary.js"));
+const nativeModule = require(path.join(rootDir, "dist", "native.js"));
+
 function createResponse(target = "https://api.example.test/resource") {
     return new TLSResponse({
         id: "compat-smoke",
@@ -73,6 +76,38 @@ assert.equal(ClientIdentifier.safari_ios_18_5, "safari_ios_18_5");
 assert.equal(ClientIdentifier.safari_ios_26_0, "safari_ios_26_0");
 assert.equal(ClientIdentifier.okhttp4_android_12, "okhttp4_android_12");
 assert.equal(Emulation.chrome_136, ClientIdentifier.chrome_136);
+
+const originalSupportsNativeRuntime = binaryModule.supportsNativeRuntime;
+const originalEnsureBinary = binaryModule.ensureBinary;
+const originalEnsureNativeBinding = nativeModule.ensureNativeBinding;
+let managedDefaultEnsureBinaryCalls = 0;
+let managedDefaultEnsureNativeBindingCalls = 0;
+const managedDefaultSentinel = new Error("managed-default-selected");
+
+binaryModule.supportsNativeRuntime = () => true;
+binaryModule.ensureBinary = async () => {
+    managedDefaultEnsureBinaryCalls += 1;
+    throw managedDefaultSentinel;
+};
+nativeModule.ensureNativeBinding = async () => {
+    managedDefaultEnsureNativeBindingCalls += 1;
+    throw new Error("native runtime should not be selected by default");
+};
+
+try {
+    const managedDefaultClient = new TLSClient();
+
+    await assert.rejects(
+        managedDefaultClient.start(),
+        managedDefaultSentinel,
+    );
+    assert.equal(managedDefaultEnsureBinaryCalls, 1);
+    assert.equal(managedDefaultEnsureNativeBindingCalls, 0);
+} finally {
+    binaryModule.supportsNativeRuntime = originalSupportsNativeRuntime;
+    binaryModule.ensureBinary = originalEnsureBinary;
+    nativeModule.ensureNativeBinding = originalEnsureNativeBinding;
+}
 
 const identifierClient = new TLSClient();
 let identifierPayload;
@@ -327,6 +362,7 @@ console.log(JSON.stringify({
         "randomTlsExtensionOrder",
         "upstream clientIdentifier constants",
         "emulation alias",
+        "managed default runtime",
         "multipart form-data",
         "multipart helpers",
         "redirect alias",

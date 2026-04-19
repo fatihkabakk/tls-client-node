@@ -1,6 +1,6 @@
 <div align="center">
   <h1>tls-client-node</h1>
-  <p><strong>Native-first Node.js wrapper for browser-like TLS profiles.</strong></p>
+  <p><strong>Managed-first Node.js wrapper for browser-like TLS profiles.</strong></p>
   <p>Explicit lifecycle, upstream-aligned payloads, and published package distribution without singleton-style API state.</p>
   <p>
     <a href="https://www.npmjs.com/package/tls-client-node">
@@ -31,13 +31,13 @@
   </p>
 </div>
 
-`tls-client-node` is a source-available Node.js client for `bogdanfinn/tls-client`. It uses direct shared-library loading on supported local platforms by default, keeps lifecycle control explicit through `TLSClient` and `Session`, and can also run through `tls-client-api` when that mode is explicitly selected.
+`tls-client-node` is a source-available Node.js client for `bogdanfinn/tls-client`. It uses managed `tls-client-api` mode by default for predictable async concurrency, keeps lifecycle control explicit through `TLSClient` and `Session`, and can also run through direct shared-library loading when native mode is explicitly selected.
 
 ## Why tls-client-node
 
 | Focus | What you get |
 | --- | --- |
-| Native-first local runtime | Uses the upstream shared library directly on supported platforms instead of forcing a local sidecar process by default. |
+| Managed-first local runtime | Uses the `tls-client-api` sidecar process by default for more predictable concurrent async behavior. |
 | Explicit lifecycle | `TLSClient` and `Session` keep ownership obvious, instead of hiding everything behind global init and destroy calls. |
 | Upstream alignment | Custom TLS payloads and profile identifiers are kept close to Bogdan Finn's `tls-client` contract. |
 | Migration practicality | Common `node-tls-client` aliases such as `ja3string`, `timeout`, `hostOverride`, and `randomTlsExtensionOrder` are supported. |
@@ -46,8 +46,8 @@
 ## Highlights
 
 - Clean named ESM imports and CommonJS `require` support.
-- Default local runtime uses the upstream shared library directly: `.dll`, `.dylib`, or `.so`.
-- Managed mode is available through `runtimeMode: "managed"`.
+- Default local runtime uses managed `tls-client-api`.
+- Native mode is available through `runtimeMode: "native"`.
 - Session-oriented API with explicit client and session control.
 - Strict custom TLS handling with no silent fallback to stock client identifiers.
 
@@ -217,15 +217,15 @@ await client.stop();
 
 ## Runtime Modes
 
-Default local mode is native shared-library loading on supported platforms.
+Default local mode is managed `tls-client-api`.
 
-Use managed mode only when you explicitly want the `tls-client-api` process:
+Use native mode only when you explicitly want direct shared-library loading:
 
 ```ts
 import { TLSClient } from "tls-client-node";
 
 const client = new TLSClient({
-  runtimeMode: "managed",
+  runtimeMode: "native",
 });
 ```
 

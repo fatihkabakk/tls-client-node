@@ -747,7 +747,7 @@ function shouldUseNativeRuntime(options: TLSClientOptions): boolean {
     return false;
   }
 
-  return supportsNativeRuntime();
+  return false;
 }
 
 async function pathExists(filePath: string): Promise<boolean> {
