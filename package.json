@@ -5,7 +5,7 @@
     "author": "Fatih Kabak",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/fatihkabakk/tls-client-node.git"
+        "url": "https://github.com/fatihkabakk/tls-client-node"
     },
     "homepage": "https://github.com/fatihkabakk/tls-client-node#readme",
     "bugs": {
