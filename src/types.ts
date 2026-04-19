@@ -107,7 +107,7 @@ export interface Cookie {
   value: string;
   path?: string;
   domain?: string;
-  expires?: string;
+  expires?: string | number;
   maxAge?: number;
   secure?: boolean;
   httpOnly?: boolean;

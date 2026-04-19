@@ -90,9 +90,42 @@ function normalizeCookieInput(
   return Object.entries(cookies).map(([name, value]) => ({ name, value }));
 }
 
-function formatCookieExpires(expires: string): string {
+function formatCookieExpires(expires: string | number): string {
+  const parsedDate = typeof expires === "number"
+    ? new Date(expires * 1000)
+    : new Date(expires);
+
+  return Number.isNaN(parsedDate.getTime())
+    ? String(expires)
+    : parsedDate.toUTCString();
+}
+
+function normalizeCookieExpiresForRuntime(
+  expires?: string | number
+): number | undefined {
+  if (expires === undefined) {
+    return undefined;
+  }
+
+  if (typeof expires === "number") {
+    return Number.isFinite(expires) ? Math.trunc(expires) : undefined;
+  }
+
   const parsedDate = new Date(expires);
-  return Number.isNaN(parsedDate.getTime()) ? expires : parsedDate.toUTCString();
+  const timestamp = parsedDate.getTime();
+
+  return Number.isNaN(timestamp)
+    ? undefined
+    : Math.trunc(timestamp / 1000);
+}
+
+function normalizeCookiesForRuntime(
+  cookies?: Cookie[] | Record<string, string>
+): Cookie[] {
+  return normalizeCookieInput(cookies).map((cookie) => ({
+    ...cookie,
+    expires: normalizeCookieExpiresForRuntime(cookie.expires),
+  }));
 }
 
 function buildCookieJarString(cookie: Cookie): string {
@@ -443,7 +476,7 @@ function buildForwardPayload(
     requestUrl: url,
     requestMethod: normalizeMethod(requestOptions.method),
     requestBody,
-    requestCookies: normalizeCookieInput(requestOptions.cookies),
+    requestCookies: normalizeCookiesForRuntime(requestOptions.cookies),
     tlsClientIdentifier: profileSelection.tlsClientIdentifier,
     customTlsClient: profileSelection.customTlsClient,
     followRedirects: pickDefined(
