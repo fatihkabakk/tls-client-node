@@ -28,9 +28,9 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
           cache: yarn
 
@@ -81,9 +81,9 @@ jobs:
 
     steps:
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Download tarball artifact
@@ -93,7 +93,7 @@ jobs:
           path: release-artifacts
 
       - name: Publish to npm
-        run: npm publish ./release-artifacts/*.tgz --provenance --access public
+        run: npm publish ./release-artifacts/*.tgz --access public
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
