@@ -187,21 +187,25 @@ import { TLSClient } from "tls-client-node";
 
 const client = new TLSClient();
 
-const response = await client.request("https://api.pinterest.com/_/_/warm/", {
+const response = await client.request("https://example.com/", {
   proxyUrl: "http://user:pass@proxy.example:5959",
   followRedirects: true,
+  headers: {
+    "user-agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36",
+    accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "accept-language": "en-US,en;q=0.9",
+    "accept-encoding": "gzip, deflate, br",
+  },
   customTlsClient: {
-    ja3String: "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,5-45-18-65037-0-11-27-23-13-51-10-35-17613-65281-16-43-41,4588-29-23-24,0",
+    ja3String: "771,2570-4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,2570-0-23-65281-10-11-35-16-5-13-18-51-45-43-27-17513-2570-21,2570-29-23-24,0",
     h2Settings: {
       HEADER_TABLE_SIZE: 65536,
-      ENABLE_PUSH: 0,
       MAX_CONCURRENT_STREAMS: 1000,
       INITIAL_WINDOW_SIZE: 6291456,
       MAX_HEADER_LIST_SIZE: 262144,
     },
     h2SettingsOrder: [
       "HEADER_TABLE_SIZE",
-      "ENABLE_PUSH",
       "MAX_CONCURRENT_STREAMS",
       "INITIAL_WINDOW_SIZE",
       "MAX_HEADER_LIST_SIZE",
@@ -217,10 +221,11 @@ const response = await client.request("https://api.pinterest.com/_/_/warm/", {
       "PKCS1WithSHA512",
     ],
     supportedVersions: ["GREASE", "1.3", "1.2"],
-    keyShareCurves: ["GREASE", "X25519", "P256", "P384"],
+    keyShareCurves: ["GREASE", "X25519"],
     certCompressionAlgos: ["brotli"],
     pseudoHeaderOrder: [":method", ":authority", ":scheme", ":path"],
     connectionFlow: 15663105,
+    headerOrder: ["accept", "user-agent", "accept-encoding", "accept-language"],
     priorityFrames: [
       {
         streamID: 1,

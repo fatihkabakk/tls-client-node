@@ -408,6 +408,11 @@ export async function writeConfigFile(
     "",
   ].join("\n");
 
-  await writeFile(configPath, yaml, "utf8");
+  await writeFile(configPath, yaml, { encoding: "utf8", mode: 0o600 });
+
+  if (process.platform !== "win32") {
+    await chmod(configPath, 0o600);
+  }
+
   return configPath;
 }

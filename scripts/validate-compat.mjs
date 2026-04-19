@@ -131,6 +131,36 @@ const synchronizedCookies = await runtimeCookieSession.cookieJar.getCookies("htt
 assert.equal(synchronizedCookies.length, 1);
 assert.equal(synchronizedCookies[0].key, "runtime");
 
+const closingClient = new TLSClient();
+const closingSession = closingClient.session();
+let destroySessionCalls = 0;
+let releaseClose;
+const closeGate = new Promise((resolve) => {
+    releaseClose = resolve;
+});
+
+closingClient.destroySession = async (sessionId) => {
+    destroySessionCalls += 1;
+    assert.equal(sessionId, closingSession.id);
+    await closeGate;
+    return {
+        id: sessionId,
+        success: true,
+    };
+};
+
+const closePromiseA = closingSession.close();
+const closePromiseB = closingSession.close();
+
+assert.equal(destroySessionCalls, 1);
+releaseClose();
+await Promise.all([closePromiseA, closePromiseB]);
+
+await assert.rejects(
+    () => closingSession.get("https://example.com/"),
+    /Session is already closed/,
+);
+
 console.log(JSON.stringify({
     ok: true,
     aliasesChecked: [
@@ -140,5 +170,6 @@ console.log(JSON.stringify({
         "randomTlsExtensionOrder",
         "upstream clientIdentifier constants",
         "cookieJar expires forwarding",
+        "concurrent session close",
     ],
 }));

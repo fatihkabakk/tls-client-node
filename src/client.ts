@@ -219,6 +219,12 @@ const CUSTOM_TLS_REJECTION_PATTERNS = [
   /unknown\s+clienthelloid:\s*custom-1/i,
 ];
 
+const MANAGED_RUNTIME_START_RETRIES = 3;
+const MANAGED_RUNTIME_PORT_CONFLICT_PATTERNS = [
+  /address already in use/i,
+  /only one usage of each socket address/i,
+];
+
 const RETRIABLE_TRANSPORT_PATTERNS = [
   /\beof\b/i,
   /context deadline exceeded/i,
@@ -234,6 +240,10 @@ const RETRIABLE_TRANSPORT_PATTERNS = [
 ];
 
 const RUNTIME_SLOT_COUNT = 8;
+
+function isManagedRuntimePortConflict(output: string): boolean {
+  return MANAGED_RUNTIME_PORT_CONFLICT_PATTERNS.some((pattern) => pattern.test(output));
+}
 
 function cloneStringArray(value?: string[]): string[] | undefined {
   return value ? [...value] : undefined;
@@ -834,12 +844,17 @@ async function prepareRuntimeSlot(
 
     const runtimeExecutablePath = path.join(runtimeDir, executableName);
 
-    if (!(await pathExists(runtimeExecutablePath))) {
-      await copyFile(executablePath, runtimeExecutablePath);
+    try {
+      if (!(await pathExists(runtimeExecutablePath))) {
+        await copyFile(executablePath, runtimeExecutablePath);
 
-      if (process.platform !== "win32") {
-        await chmod(runtimeExecutablePath, 0o755);
+        if (process.platform !== "win32") {
+          await chmod(runtimeExecutablePath, 0o755);
+        }
       }
+    } catch (error) {
+      await releaseRuntimeLock(lockFilePath);
+      throw error;
     }
 
     return {
@@ -1053,81 +1068,102 @@ export class TLSClient {
     }
 
     const binary = await ensureBinary(this.options);
-    const port = await findAvailablePort(this.options.port);
-    const healthPort = await findAvailablePort(this.options.healthPort);
     const apiKey = this.options.apiKey ?? randomBytes(16).toString("hex");
-    const { runtimeDir, runtimeExecutablePath, lockFilePath } = await prepareRuntimeSlot(
-      this.options,
-      binary.executablePath,
-      binary.version
-    );
-    const configFilePath = await writeConfigFile(runtimeDir, port, healthPort, apiKey);
+    let lastStartupError: TLSClientError | undefined;
 
-    const child = spawn(runtimeExecutablePath, [], {
-      stdio: ["ignore", "pipe", "pipe"],
-      cwd: runtimeDir,
-      windowsHide: true,
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let exitCode: number | null = null;
-    let exitSignal: NodeJS.Signals | null = null;
-
-    const onStdoutData = (chunk: Buffer | string) => {
-      stdout = appendBoundedLog(stdout, chunk);
-    };
-    const onStderrData = (chunk: Buffer | string) => {
-      stderr = appendBoundedLog(stderr, chunk);
-    };
-    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
-      exitCode = code;
-      exitSignal = signal;
-    };
-
-    child.stdout.on("data", onStdoutData);
-    child.stderr.on("data", onStderrData);
-    child.on("exit", onExit);
-
-    const detachStartupListeners = () => {
-      child.stdout.off("data", onStdoutData);
-      child.stderr.off("data", onStderrData);
-      child.off("exit", onExit);
-    };
-
-    const runtime: RuntimeState = {
-      mode: "managed",
-      baseUrl: `http://127.0.0.1:${port}`,
-      apiKey,
-      child,
-      runtimeDir,
-      lockFilePath,
-      configFilePath,
-    };
-
-    this.runtime = runtime;
-
-    try {
-      await this.waitUntilReady();
-      detachStartupListeners();
-    } catch (error) {
-      detachStartupListeners();
-      await stopChildProcess(child);
-      await unlink(configFilePath).catch(() => undefined);
-      await releaseRuntimeLock(lockFilePath);
-      this.runtime = undefined;
-      const startupOutput = [stdout.trim(), stderr.trim()]
-        .filter(Boolean)
-        .join("\n");
-      throw new TLSClientError(
-        startupOutput
-          ? `tls-client-api failed to start: ${startupOutput}`
-          : exitCode !== null || exitSignal !== null
-            ? `tls-client-api failed to start (exit code: ${exitCode ?? "null"}, signal: ${exitSignal ?? "null"}).`
-            : "tls-client-api failed to start.",
-        { code: "ERR_STARTUP", cause: error }
+    for (let attempt = 0; attempt < MANAGED_RUNTIME_START_RETRIES; attempt += 1) {
+      const port = await findAvailablePort(this.options.port);
+      const healthPort = await findAvailablePort(this.options.healthPort);
+      const { runtimeDir, runtimeExecutablePath, lockFilePath } = await prepareRuntimeSlot(
+        this.options,
+        binary.executablePath,
+        binary.version
       );
+      const configFilePath = await writeConfigFile(runtimeDir, port, healthPort, apiKey);
+
+      const child = spawn(runtimeExecutablePath, [], {
+        stdio: ["ignore", "pipe", "pipe"],
+        cwd: runtimeDir,
+        windowsHide: true,
+      });
+
+      let stdout = "";
+      let stderr = "";
+      let exitCode: number | null = null;
+      let exitSignal: NodeJS.Signals | null = null;
+
+      const onStdoutData = (chunk: Buffer | string) => {
+        stdout = appendBoundedLog(stdout, chunk);
+      };
+      const onStderrData = (chunk: Buffer | string) => {
+        stderr = appendBoundedLog(stderr, chunk);
+      };
+      const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+        exitCode = code;
+        exitSignal = signal;
+      };
+
+      child.stdout.on("data", onStdoutData);
+      child.stderr.on("data", onStderrData);
+      child.on("exit", onExit);
+
+      const detachStartupListeners = () => {
+        child.stdout.off("data", onStdoutData);
+        child.stderr.off("data", onStderrData);
+        child.off("exit", onExit);
+      };
+
+      const runtime: RuntimeState = {
+        mode: "managed",
+        baseUrl: `http://127.0.0.1:${port}`,
+        apiKey,
+        child,
+        runtimeDir,
+        lockFilePath,
+        configFilePath,
+      };
+
+      this.runtime = runtime;
+
+      try {
+        await this.waitUntilReady();
+        detachStartupListeners();
+        return;
+      } catch (error) {
+        detachStartupListeners();
+        await stopChildProcess(child);
+        await unlink(configFilePath).catch(() => undefined);
+        await releaseRuntimeLock(lockFilePath);
+        this.runtime = undefined;
+
+        const startupOutput = [stdout.trim(), stderr.trim()]
+          .filter(Boolean)
+          .join("\n");
+        const startupError = new TLSClientError(
+          startupOutput
+            ? `tls-client-api failed to start: ${startupOutput}`
+            : exitCode !== null || exitSignal !== null
+              ? `tls-client-api failed to start (exit code: ${exitCode ?? "null"}, signal: ${exitSignal ?? "null"}).`
+              : "tls-client-api failed to start.",
+          { code: "ERR_STARTUP", cause: error }
+        );
+
+        lastStartupError = startupError;
+
+        if (
+          attempt + 1 < MANAGED_RUNTIME_START_RETRIES
+          && isManagedRuntimePortConflict(startupOutput)
+        ) {
+          continue;
+        }
+
+        throw startupError;
+      }
     }
+
+    throw lastStartupError ?? new TLSClientError("tls-client-api failed to start.", {
+      code: "ERR_STARTUP",
+    });
   }
 
   private async waitUntilReady(): Promise<void> {
@@ -1244,6 +1280,7 @@ export class Session {
   public readonly id: string;
   public readonly cookieJar: CookieJar;
   private closed = false;
+  private closePromise?: Promise<void>;
 
   constructor(
     private readonly client: TLSClient,
@@ -1333,12 +1370,25 @@ export class Session {
   }
 
   public async close(): Promise<void> {
+    if (this.closePromise) {
+      await this.closePromise;
+      return;
+    }
+
     if (this.closed) {
       return;
     }
 
-    await this.client.destroySession(this.id);
     this.closed = true;
+    this.closePromise = this.client.destroySession(this.id)
+      .then(() => undefined)
+      .catch((error) => {
+        this.closed = false;
+        this.closePromise = undefined;
+        throw error;
+      });
+
+    await this.closePromise;
   }
 
   private assertOpen(): void {
