@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -250,36 +248,43 @@ await redirectSession.get("https://api.example.test/redirect-boolean", {
 });
 assert.equal(redirectPayload.followRedirects, true);
 
-const delayServer = spawn(process.execPath, [
-    "-e",
-    [
-        "const http = require('node:http');",
-        "let activeRequests = 0;",
-        "let maxConcurrentRequests = 0;",
-        "const server = http.createServer((req, res) => {",
-        "  activeRequests += 1;",
-        "  maxConcurrentRequests = Math.max(maxConcurrentRequests, activeRequests);",
-        "  setTimeout(() => {",
-        "    res.writeHead(200, {",
-        "      'content-type': 'application/json',",
-        "    });",
-        "    res.end(JSON.stringify({ maxConcurrentRequests }));",
-        "    activeRequests -= 1;",
-        "  }, 600);",
-        "});",
-        "server.listen(0, '127.0.0.1', () => {",
-        "  const address = server.address();",
-        "  process.stdout.write(String(address.port));",
-        "});",
-    ].join(" "),
-], {
-    stdio: ["ignore", "pipe", "inherit"],
+let nativeActiveRequests = 0;
+let nativeMaxConcurrentRequests = 0;
+let nativeDestroyAllCalls = 0;
+
+nativeModule.ensureNativeBinding = async () => ({
+    libraryPath: "compat-native-stub",
+    async request(payload) {
+        nativeActiveRequests += 1;
+        nativeMaxConcurrentRequests = Math.max(nativeMaxConcurrentRequests, nativeActiveRequests);
+
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 75));
+            return {
+                id: `compat-native-${nativeMaxConcurrentRequests}`,
+                status: 200,
+                target: payload.requestUrl,
+                body: JSON.stringify({ maxConcurrentRequests: nativeMaxConcurrentRequests }),
+                headers: { "content-type": ["application/json"] },
+                cookies: {},
+                sessionId: payload.sessionId,
+                usedProtocol: "h2",
+            };
+        } finally {
+            nativeActiveRequests -= 1;
+        }
+    },
+    async getCookiesFromSession() {
+        return { id: "compat-native-cookies", cookies: [] };
+    },
+    async destroySession(payload) {
+        return { id: payload.sessionId ?? "compat-native-session", success: true };
+    },
+    async destroyAll() {
+        nativeDestroyAllCalls += 1;
+        return { id: "compat-native-destroy-all", success: true };
+    },
 });
-
-const [portOutput] = await once(delayServer.stdout, "data");
-const delayServerPort = Number.parseInt(String(portOutput).trim(), 10);
-
-assert.equal(Number.isInteger(delayServerPort), true);
 
 const nativeClient = new TLSClient({
     runtimeMode: "native",
@@ -290,15 +295,15 @@ const startedAt = Date.now();
 
 try {
     const nativeResponses = await Promise.all([
-        nativeClient.request(`http://127.0.0.1:${delayServerPort}/one`, {
+        nativeClient.request("https://api.example.test/native-one", {
             forceHttp1: true,
             insecureSkipVerify: true,
         }),
-        nativeClient.request(`http://127.0.0.1:${delayServerPort}/two`, {
+        nativeClient.request("https://api.example.test/native-two", {
             forceHttp1: true,
             insecureSkipVerify: true,
         }),
-        nativeClient.request(`http://127.0.0.1:${delayServerPort}/three`, {
+        nativeClient.request("https://api.example.test/native-three", {
             forceHttp1: true,
             insecureSkipVerify: true,
         }),
@@ -312,16 +317,18 @@ try {
     assert.deepEqual(nativeResponses.map((response) => response.status), [200, 200, 200]);
     assert.ok(
         maxConcurrentRequests > 1,
-        `Expected concurrent native requests to overlap, but server observed max concurrency ${maxConcurrentRequests}.`,
+        `Expected concurrent native requests to overlap, but stub observed max concurrency ${maxConcurrentRequests}.`,
     );
     assert.ok(
-        elapsedMs < 2_500,
+        elapsedMs < 250,
         `Expected concurrent native requests to finish well below serialized timing, but they took ${elapsedMs}ms.`,
     );
 } finally {
     await nativeClient.stop();
-    delayServer.kill();
+    nativeModule.ensureNativeBinding = originalEnsureNativeBinding;
 }
+
+assert.equal(nativeDestroyAllCalls, 1);
 
 const closingClient = new TLSClient();
 const closingSession = closingClient.session();
