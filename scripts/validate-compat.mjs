@@ -219,10 +219,17 @@ const delayServer = spawn(process.execPath, [
     "-e",
     [
         "const http = require('node:http');",
+        "let activeRequests = 0;",
+        "let maxConcurrentRequests = 0;",
         "const server = http.createServer((req, res) => {",
+        "  activeRequests += 1;",
+        "  maxConcurrentRequests = Math.max(maxConcurrentRequests, activeRequests);",
         "  setTimeout(() => {",
-        "    res.writeHead(200, { 'content-type': 'text/plain' });",
-        "    res.end('ok');",
+        "    res.writeHead(200, {",
+        "      'content-type': 'application/json',",
+        "    });",
+        "    res.end(JSON.stringify({ maxConcurrentRequests }));",
+        "    activeRequests -= 1;",
         "  }, 600);",
         "});",
         "server.listen(0, '127.0.0.1', () => {",
@@ -262,11 +269,19 @@ try {
         }),
     ]);
     const elapsedMs = Date.now() - startedAt;
+    const maxConcurrentRequests = Math.max(
+        ...(await Promise.all(nativeResponses.map((response) => response.json())))
+            .map((payload) => Number(payload?.maxConcurrentRequests ?? 0)),
+    );
 
     assert.deepEqual(nativeResponses.map((response) => response.status), [200, 200, 200]);
     assert.ok(
-        elapsedMs < 1_400,
-        `Expected concurrent native requests to overlap, but they took ${elapsedMs}ms.`,
+        maxConcurrentRequests > 1,
+        `Expected concurrent native requests to overlap, but server observed max concurrency ${maxConcurrentRequests}.`,
+    );
+    assert.ok(
+        elapsedMs < 2_500,
+        `Expected concurrent native requests to finish well below serialized timing, but they took ${elapsedMs}ms.`,
     );
 } finally {
     await nativeClient.stop();
