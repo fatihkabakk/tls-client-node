@@ -1,13 +1,25 @@
 <div align="center">
   <h1>tls-client-node</h1>
-  <p>Explicit, upstream-aligned Node.js wrapper for bogdanfinn/tls-client.</p>
+  <p><strong>Native-first Node.js wrapper for browser-like TLS profiles.</strong></p>
+  <p>Explicit lifecycle, upstream-aligned payloads, and published package distribution without singleton-style API state.</p>
   <p>
+    <a href="https://www.npmjs.com/package/tls-client-node">
+      <img src="https://img.shields.io/npm/v/tls-client-node" alt="npm version" />
+    </a>
+    <a href="https://www.npmjs.com/package/tls-client-node">
+      <img src="https://img.shields.io/npm/dm/tls-client-node" alt="npm downloads" />
+    </a>
     <a href="https://github.com/fatihkabakk/tls-client-node/actions/workflows/ci.yml">
       <img src="https://github.com/fatihkabakk/tls-client-node/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI status" />
     </a>
     <img src="https://img.shields.io/badge/runtime-native%20%7C%20managed%20%7C%20remote-0f766e" alt="Runtime modes" />
     <img src="https://img.shields.io/badge/TypeScript-strict-3178c6" alt="TypeScript strict" />
     <img src="https://img.shields.io/badge/license-source--available-black" alt="Source available" />
+  </p>
+  <p>
+    <a href="https://www.npmjs.com/package/tls-client-node">
+      <img src="https://nodei.co/npm/tls-client-node.png?downloads=true&stars=true" alt="npm package banner" />
+    </a>
   </p>
 </div>
 
@@ -21,6 +33,16 @@
 
 `tls-client-node` is a source-available Node.js client for `bogdanfinn/tls-client`. It uses direct shared-library loading on supported local platforms by default, keeps lifecycle control explicit through `TLSClient` and `Session`, and can also run through `tls-client-api` when that mode is explicitly selected.
 
+## Why tls-client-node
+
+| Focus | What you get |
+| --- | --- |
+| Native-first local runtime | Uses the upstream shared library directly on supported platforms instead of forcing a local sidecar process by default. |
+| Explicit lifecycle | `TLSClient` and `Session` keep ownership obvious, instead of hiding everything behind global init and destroy calls. |
+| Upstream alignment | Custom TLS payloads and profile identifiers are kept close to Bogdan Finn's `tls-client` contract. |
+| Migration practicality | Common `node-tls-client` aliases such as `ja3string`, `timeout`, `hostOverride`, and `randomTlsExtensionOrder` are supported. |
+| Modern package surface | Published npm package with strict TypeScript types, named ESM imports, and CommonJS `require` support. |
+
 ## Highlights
 
 - Clean named ESM imports and CommonJS `require` support.
@@ -32,7 +54,11 @@
 ## Installation
 
 ```sh
+npm install tls-client-node
+# or
 yarn add tls-client-node
+# or
+pnpm add tls-client-node
 ```
 
 During `postinstall`, the package tries to download the matching upstream shared library for the current platform. If that step is skipped or fails, the required local asset is downloaded lazily on first startup.
