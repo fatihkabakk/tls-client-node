@@ -264,7 +264,7 @@ export interface CookiesOutput {
   cookies: Cookie[];
 }
 
-export type SerializedCookieJar = CookieJar.Serialized;
+export type SerializedCookieJar = ReturnType<CookieJar["serializeSync"]>;
 
 export interface BinaryInfo {
   executablePath: string;
