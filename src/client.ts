@@ -518,10 +518,7 @@ async function buildForwardPayload(
   const timeoutSeconds = pickDefined(
     requestOptions.timeoutSeconds,
     sessionDefaults?.timeoutSeconds,
-    // Don't send timeoutSeconds=0 when the caller only set timeoutMilliseconds —
-    // the Go layer would see 0 seconds and may ignore the ms value entirely.
-    // Omitting the key (undefined) lets the Go layer apply its own default.
-    timeoutMilliseconds !== undefined ? undefined : 30
+    timeoutMilliseconds !== undefined ? 0 : 30
   );
   const { requestBody, isByteRequest } = await encodeBody(
     requestOptions.body,
