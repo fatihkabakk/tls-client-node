@@ -1,7 +1,10 @@
 import { ApiResponsePayload, CookieMap } from "./types";
 
 function isDataUrl(value: string): boolean {
-  return value.startsWith("data:") && value.includes(";base64,");
+  // Strict full-string match for the exact format the Go library emits for byte
+  // responses. The loose startsWith+includes check would false-positive on text
+  // bodies that happen to contain "data:" and ";base64," (e.g. CSS with data URIs).
+  return /^data:[^;]{1,256};base64,[A-Za-z0-9+/]*={0,2}$/.test(value);
 }
 
 export class TLSResponse {
@@ -21,7 +24,11 @@ export class TLSResponse {
     this.status = payload.status;
     this.url = payload.target;
     this.body = payload.body;
-    this.headers = payload.headers ?? {};
+    // Normalize to lowercase so header() lookups are case-insensitive regardless
+    // of what casing the Go API uses in its response.
+    this.headers = Object.fromEntries(
+      Object.entries(payload.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v])
+    );
     this.cookies = payload.cookies ?? {};
     this.sessionId = payload.sessionId;
     this.usedProtocol = payload.usedProtocol;
@@ -50,8 +57,7 @@ export class TLSResponse {
   }
 
   public header(name: string): string | undefined {
-    const values = this.headers[name.toLowerCase()] ?? this.headers[name];
-    return values?.join(", ");
+    return this.headers[name.toLowerCase()]?.join(", ");
   }
 
   public toJSON(): ApiResponsePayload {

@@ -518,7 +518,10 @@ async function buildForwardPayload(
   const timeoutSeconds = pickDefined(
     requestOptions.timeoutSeconds,
     sessionDefaults?.timeoutSeconds,
-    timeoutMilliseconds !== undefined ? 0 : 30
+    // Don't send timeoutSeconds=0 when the caller only set timeoutMilliseconds —
+    // the Go layer would see 0 seconds and may ignore the ms value entirely.
+    // Omitting the key (undefined) lets the Go layer apply its own default.
+    timeoutMilliseconds !== undefined ? undefined : 30
   );
   const { requestBody, isByteRequest } = await encodeBody(
     requestOptions.body,
@@ -1219,6 +1222,7 @@ export class TLSClient {
 
   private async waitUntilReady(): Promise<void> {
     const startedAt = Date.now();
+    let waitMs = 50;
     while (Date.now() - startedAt < this.options.startupTimeoutMs) {
       try {
         await this.requestJson<DestroyOutput>("/api/free-session", {
@@ -1226,7 +1230,8 @@ export class TLSClient {
         });
         return;
       } catch {
-        await delay(200);
+        await delay(waitMs);
+        waitMs = Math.min(waitMs * 2, 500);
       }
     }
 
@@ -1320,6 +1325,15 @@ export class TLSClient {
 
       return JSON.parse(text) as T;
     } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === "AbortError" || (error as NodeJS.ErrnoException).code === "ABORT_ERR")
+      ) {
+        throw new TLSClientError(
+          `tls-client-api request timed out after ${this.options.requestTimeoutMs}ms`,
+          { code: "ERR_REQUEST_TIMEOUT", retriable: true }
+        );
+      }
       throw TLSClientError.fromUnknown(error, { code: "ERR_API_REQUEST" });
     } finally {
       clearTimeout(timer);

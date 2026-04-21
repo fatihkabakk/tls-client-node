@@ -41,6 +41,12 @@ function parseNativeResponse<T>(
   try {
     parsed = JSON.parse(rawResponse) as T & { id?: string };
   } catch (error) {
+    // Best-effort: extract and free the Go allocation even from malformed JSON
+    // to prevent memory leaks when the library returns a corrupted response.
+    const idMatch = /"id"\s*:\s*"([^"]+)"/.exec(rawResponse);
+    if (idMatch?.[1]) {
+      binding.freeMemory(idMatch[1]);
+    }
     throw new TLSClientError(
       `tls-client native ${operation} returned invalid JSON: ${rawResponse}`,
       {
