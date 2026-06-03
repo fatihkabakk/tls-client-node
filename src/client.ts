@@ -241,7 +241,28 @@ const RETRIABLE_TRANSPORT_PATTERNS = [
   /http\/?2.*stream/i,
 ];
 
-const RUNTIME_SLOT_COUNT = 8;
+const DEFAULT_RUNTIME_SLOT_COUNT = 128;
+
+function isPositiveInteger(value: number): boolean {
+  return Number.isInteger(value) && value > 0;
+}
+
+// Resolves the managed runtime slot ceiling: per-client option first, then the
+// TLS_CLIENT_RUNTIME_SLOTS env override, then the built-in default.
+function resolveRuntimeSlotCount(options: TLSClientOptions): number {
+  if (options.runtimeSlots !== undefined && isPositiveInteger(options.runtimeSlots)) {
+    return options.runtimeSlots;
+  }
+
+  const envOverride = Number.parseInt(
+    process.env.TLS_CLIENT_RUNTIME_SLOTS ?? "",
+    10
+  );
+
+  return isPositiveInteger(envOverride)
+    ? envOverride
+    : DEFAULT_RUNTIME_SLOT_COUNT;
+}
 
 function isManagedRuntimePortConflict(output: string): boolean {
   return MANAGED_RUNTIME_PORT_CONFLICT_PATTERNS.some((pattern) => pattern.test(output));
@@ -878,7 +899,9 @@ async function prepareRuntimeSlot(
 
   await mkdir(versionRoot, { recursive: true });
 
-  for (let slotIndex = 0; slotIndex < RUNTIME_SLOT_COUNT; slotIndex += 1) {
+  const slotCount = resolveRuntimeSlotCount(options);
+
+  for (let slotIndex = 0; slotIndex < slotCount; slotIndex += 1) {
     const runtimeDir = path.join(versionRoot, `slot-${slotIndex}`);
     const lockFilePath = path.join(runtimeDir, ".lock");
 
@@ -911,7 +934,7 @@ async function prepareRuntimeSlot(
   }
 
   throw new TLSClientError(
-    `Unable to allocate a tls-client runtime slot after checking ${RUNTIME_SLOT_COUNT} slots.`,
+    `Unable to allocate a tls-client runtime slot after checking ${slotCount} slots.`,
     { code: "ERR_RUNTIME_SLOT_UNAVAILABLE" }
   );
 }

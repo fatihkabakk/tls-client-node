@@ -250,6 +250,7 @@ export interface TLSClientOptions {
   healthPort?: number;
   downloadDir?: string;
   runtimeDir?: string;
+  runtimeSlots?: number;
   requestTimeoutMs?: number;
   startupTimeoutMs?: number;
   githubToken?: string;

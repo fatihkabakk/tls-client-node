@@ -68,6 +68,7 @@ Environment variables:
 - `TLS_CLIENT_SKIP_DOWNLOAD=1` disables install-time downloads.
 - `TLS_CLIENT_VERSION=1.14.0` pins the upstream asset version.
 - `TLS_CLIENT_API_VERSION=1.14.0` is also recognized as an alias for `TLS_CLIENT_VERSION`.
+- `TLS_CLIENT_RUNTIME_SLOTS=128` caps how many managed `tls-client-api` runtimes can run at once on a host (default `128`). The per-client `runtimeSlots` option overrides it. See [Runtime Modes](#runtime-modes).
 
 ## Imports
 
@@ -239,6 +240,60 @@ const client = new TLSClient({
   apiKey: "my-auth-key-1",
 });
 ```
+
+### Managed runtime slots
+
+In managed mode each started `TLSClient` claims an isolated **runtime slot** — its own runtime directory, lock file, and `tls-client-api` child process — so multiple clients (and multiple OS processes) never collide on the same files or ports. A single runtime serves many concurrent sessions and requests, so you normally need **one slot per long-lived process**, not one per request.
+
+Slots live under the runtime cache, keyed by upstream version:
+
+| Platform | Location |
+| --- | --- |
+| Linux | `${XDG_CACHE_HOME:-~/.cache}/tls-client-node/runtime/<version>/slot-N/` |
+| macOS | `~/Library/Caches/tls-client-node/runtime/<version>/slot-N/` |
+| Windows | single managed runtime under `%LOCALAPPDATA%\tls-client-node\runtime` (the slot pool applies only when you set `runtimeDir`) |
+
+The slot ceiling is resolved as **`runtimeSlots` option → `TLS_CLIENT_RUNTIME_SLOTS` env → default `128`**:
+
+```ts
+const client = new TLSClient({
+  runtimeSlots: 256, // overrides TLS_CLIENT_RUNTIME_SLOTS and the default
+});
+```
+
+The cap is a ceiling, not a reservation: slots are spawned only as they are claimed, so low-concurrency apps pay nothing for a high cap. Raise it only if you genuinely run that many concurrent managed runtimes on one host; each slot is a full native process with its own memory, file handles, and port. Invalid values (non-integers, zero, or negatives) fall back to the next source in the chain.
+
+Reuse one client instead of creating a new one per request — and always release the slot when done:
+
+```ts
+const client = new TLSClient();
+try {
+  const session = client.session();
+  // ...many concurrent requests share this one runtime slot...
+} finally {
+  await client.stop(); // releases the slot and stops the child process
+}
+```
+
+> The top-level `fetch()` helper spins up an isolated temporary client (one slot) per call when you do not pass an explicit `client` or `session`. For hot paths, pass a shared client.
+
+### Troubleshooting `ERR_RUNTIME_SLOT_UNAVAILABLE`
+
+`Unable to allocate a tls-client runtime slot after checking N slots` means every slot is taken. Common causes:
+
+- **Too many concurrent runtimes** — more started clients (or separate processes) than the slot cap. Reuse a shared client, or raise `TLS_CLIENT_RUNTIME_SLOTS`.
+- **Leaked locks** — a runtime was force-killed (`SIGKILL`, `kill -9`, abrupt container stop) before `client.stop()` ran, leaving a stale `.lock` behind. Stale locks are reclaimed automatically only when the recorded PID is no longer alive, so on busy hosts where PIDs get recycled a dead owner can keep a slot pinned.
+
+To clear stale slots when no runtimes should be active:
+
+```sh
+# Linux/macOS
+pkill -f tls-client-api
+rm -f ~/.cache/tls-client-node/runtime/*/slot-*/.lock           # Linux
+rm -f ~/Library/Caches/tls-client-node/runtime/*/slot-*/.lock   # macOS
+```
+
+Calling `await client.stop()` (ideally in a `finally`, and on `SIGINT`/`SIGTERM` handlers) prevents leaks in the first place.
 
 ## Custom TLS
 
